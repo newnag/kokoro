@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Uptime Monitor</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <i class="fas fa-heartbeat"></i>
+          <h1>Website Uptime Monitor</h1>
+        </div>
+        <div class="header-right">
+          <div class="header-stats">
+            <div class="stat online">
+              <i class="fas fa-check-circle"></i>
+              <span id="online-count">0</span> Online
+            </div>
+            <div class="stat offline">
+              <i class="fas fa-times-circle"></i>
+              <span id="offline-count">0</span> Offline
+            </div>
+          </div>
+          <div id="user-info" class="user-info">
+            <!-- User info will be inserted here -->
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Add Website Form -->
+      <section class="add-website-section">
+        <h2><i class="fas fa-plus-circle"></i> Add Website</h2>
+        <form id="add-website-form" class="add-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="website-name">Name</label>
+              <input type="text" id="website-name" placeholder="My Website" required>
+            </div>
+            <div class="form-group">
+              <label for="website-url">URL</label>
+              <input type="url" id="website-url" placeholder="https://example.com" required>
+            </div>
+            <div class="form-group">
+              <label for="check-interval">Interval (sec)</label>
+              <input type="number" id="check-interval" value="30" min="10" max="3600">
+            </div>
+            <div class="form-group">
+              <button type="submit" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- Websites Grid -->
+      <section class="websites-section">
+        <h2><i class="fas fa-globe"></i> Monitored Websites</h2>
+        <div id="websites-grid" class="websites-grid">
+          <!-- Website cards will be inserted here -->
+        </div>
+        <div id="empty-state" class="empty-state">
+          <i class="fas fa-satellite-dish"></i>
+          <p>No websites being monitored yet.</p>
+          <p>Add your first website above to get started!</p>
+        </div>
+      </section>
+
+      <!-- Recent Incidents -->
+      <section class="incidents-section">
+        <h2><i class="fas fa-exclamation-triangle"></i> Recent Incidents</h2>
+        <div id="incidents-list" class="incidents-list">
+          <div class="no-incidents">
+            <i class="fas fa-check-circle"></i>
+            <p>No recent incidents. All systems operational!</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal for Website Details -->
+    <div id="website-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modal-title">Website Details</h2>
+          <button class="close-btn" id="modal-close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body" id="modal-body">
+          <!-- Content will be loaded dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert Settings Modal -->
+    <div id="alert-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Alert Settings</h2>
+          <button class="close-btn" id="alert-modal-close-btn">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="alert-form">
+            <div class="form-group">
+              <label for="alert-type">Alert Type</label>
+              <select id="alert-type" required>
+                <option value="email">Email</option>
+                <option value="discord">Discord Webhook</option>
+                <option value="slack">Slack Webhook</option>
+                <option value="webhook">Custom Webhook</option>
+              </select>
+            </div>
+            <div id="email-config" class="alert-config">
+              <div class="form-group">
+                <label for="email-recipients">Email Recipients (comma-separated)</label>
+                <input type="text" id="email-recipients" placeholder="admin@example.com, dev@example.com">
+              </div>
+            </div>
+            <div id="webhook-config" class="alert-config" style="display:none">
+              <div class="form-group">
+                <label for="webhook-url">Webhook URL</label>
+                <input type="url" id="webhook-url" placeholder="https://...">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-save"></i> Save Alert
+            </button>
+          </form>
+          <hr>
+          <h3>Existing Alerts</h3>
+          <div id="alerts-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
