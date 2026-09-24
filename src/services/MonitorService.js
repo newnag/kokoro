@@ -58,6 +58,13 @@ class MonitorService {
     // Save to database
     CheckHistory.create(result);
 
+    // A transport failure has no HTTP response. Keep the previous monitor state
+    // so transient timeouts do not create false incidents or notifications.
+    if (!MonitorService.hasHttpStatus(result)) {
+      this.emitUpdate(website, result);
+      return result;
+    }
+
     // Handle status change
     await this.handleStatusChange(website, result);
 
@@ -67,7 +74,14 @@ class MonitorService {
     return result;
   }
 
+  static hasHttpStatus(result) {
+    const statusCode = Number(result?.status_code);
+    return Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599;
+  }
+
   async handleStatusChange(website, result) {
+    if (!MonitorService.hasHttpStatus(result)) return;
+
     const previousStatus = this.websiteStatus.get(website.id);
     this.websiteStatus.set(website.id, result.status);
 

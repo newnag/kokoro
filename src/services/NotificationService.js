@@ -5,6 +5,7 @@ require('dotenv').config();
 
 class NotificationService {
   static async sendDownAlert(website, checkResult) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     await this.sendLarkAlert(website, checkResult, 'down');
     const alerts = AlertSetting.findByWebsiteId(website.id);
     
@@ -31,6 +32,7 @@ class NotificationService {
   }
 
   static async sendUpAlert(website, checkResult, downtimeSeconds) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     await this.sendLarkAlert(website, checkResult, 'up', downtimeSeconds);
     const alerts = AlertSetting.findByWebsiteId(website.id);
     
@@ -54,6 +56,11 @@ class NotificationService {
         console.error(`Failed to send ${alert.alert_type} alert:`, error.message);
       }
     }
+  }
+
+  static hasHttpStatus(checkResult) {
+    const statusCode = Number(checkResult?.status_code);
+    return Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599;
   }
 
   static getLarkWebhookUrl() {
