@@ -84,4 +84,4 @@ tmp/
 temp/
 .npm/
 jspm_packages/
-.sqlite/
+.sqlite
