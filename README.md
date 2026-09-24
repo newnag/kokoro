@@ -44,13 +44,43 @@ http://localhost:3000
 |---------|------------|
 | 🔄 Real-time Monitor | ตรวจสอบสถานะเว็บไซต์แบบเรียลไทม์ |
 | 📊 Dashboard | เห็นสถานะทุกเว็บในหน้าเดียว |
-| 🔔 แจ้งเตือน | รองรับ Email, Discord, Slack |
+| 🔔 แจ้งเตือน | รองรับ Email, Discord, Slack และ Lark |
 | 📈 สถิติ | ดู Uptime % และ Response Time |
 | 💾 ไม่ต้องติดตั้ง Database | ใช้ SQLite เก็บในไฟล์เดียว |
 
 ---
 
 ## ❓ ปัญหาที่พบบ่อย
+
+### ตั้งค่าแจ้งเตือน Lark
+
+สร้าง Custom Bot ในกลุ่ม Lark แล้วคัดลอก Webhook URL ใส่ในไฟล์ `.env`:
+
+```
+Lark_URL_API=https://open.larksuite.com/open-apis/bot/v2/hook/...
+```
+
+ระบบจะแจ้งเมื่อเว็บไซต์ขัดข้องและเมื่อกลับมาใช้งานได้ การเว้นค่านี้ว่างไว้จะปิดการแจ้งเตือน Lark
+
+### Deploy บน Dokploy
+
+โปรเจกต์มี `Dockerfile` สำหรับ production อยู่ที่ root แล้ว ให้สร้าง Application จาก Git repository และเลือก Build Type เป็น **Dockerfile** โดยใช้ port ภายใน `3000` จากนั้นตั้งค่า domain ให้ชี้มายัง port นี้
+
+กำหนด Environment Variables ใน Dokploy (อย่า commit ค่า secret ลง Git):
+
+```
+PORT=3000
+HOST=0.0.0.0
+JWT_SECRET=<ค่าลับแบบสุ่ม>
+JWT_EXPIRES_IN=7d
+Lark_URL_API=<Lark Custom Bot Webhook URL>
+```
+
+ถ้าใช้ SMTP ให้เพิ่ม `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` และ `SMTP_FROM` ด้วย ส่วน Discord/Slack ใช้ตัวแปรเดิมใน `.env.example`
+
+ข้อมูลระบบอยู่ใน SQLite ที่ `/app/data/monitor.sqlite` จึงต้องเพิ่ม Volume Mount ใน Dokploy โดย mount Docker volume ไปที่ `/app/data` ก่อน deploy และอย่าตั้ง replica มากกว่า 1 เพราะระบบใช้ SQLite ในเครื่องเดียว
+
+หลัง deploy ให้ตรวจ `https://โดเมนของคุณ/api/health` ต้องตอบ JSON ที่มี `"status":"healthy"` และตรวจ log ว่า server listen ที่ port `3000`
 
 **เปิด `start.bat` แล้วหน้าต่างปิดไปเอง**
 → ติดตั้ง Node.js ก่อน (ดูขั้นตอนที่ 1)

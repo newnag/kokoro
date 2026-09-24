@@ -5,6 +5,7 @@ require('dotenv').config();
 
 class NotificationService {
   static async sendDownAlert(website, checkResult) {
+    await this.sendLarkAlert(website, checkResult, 'down');
     const alerts = AlertSetting.findByWebsiteId(website.id);
     
     for (const alert of alerts) {
@@ -30,6 +31,7 @@ class NotificationService {
   }
 
   static async sendUpAlert(website, checkResult, downtimeSeconds) {
+    await this.sendLarkAlert(website, checkResult, 'up', downtimeSeconds);
     const alerts = AlertSetting.findByWebsiteId(website.id);
     
     for (const alert of alerts) {
@@ -51,6 +53,58 @@ class NotificationService {
       } catch (error) {
         console.error(`Failed to send ${alert.alert_type} alert:`, error.message);
       }
+    }
+  }
+
+  static async sendLarkAlert(website, checkResult, type, downtimeSeconds = null) {
+    const webhookUrl = process.env.Lark_URL_API;
+    if (!webhookUrl) return false;
+
+    const isDown = type === 'down';
+    const checkedAt = new Intl.DateTimeFormat('th-TH', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: 'Asia/Bangkok'
+    }).format(new Date());
+    const lines = isDown
+      ? [
+          '🔴 เว็บไซต์ขัดข้อง',
+          `เว็บไซต์: ${website.name}`,
+          `URL: ${website.url}`,
+          'สถานะ: OFFLINE',
+          `HTTP Status: ${checkResult.status_code || 'N/A'}`,
+          `สาเหตุ: ${checkResult.error_message || 'ไม่ทราบสาเหตุ'}`,
+          `เวลา: ${checkedAt}`
+        ]
+      : [
+          '🟢 เว็บไซต์กลับมาใช้งานได้',
+          `เว็บไซต์: ${website.name}`,
+          `URL: ${website.url}`,
+          'สถานะ: ONLINE',
+          `HTTP Status: ${checkResult.status_code || 'N/A'}`,
+          `เวลาตอบสนอง: ${checkResult.response_time ?? 'N/A'}ms`,
+          `ระยะเวลาที่ขัดข้อง: ${this.formatDuration(downtimeSeconds || 0)}`,
+          `เวลา: ${checkedAt}`
+        ];
+
+    try {
+      const response = await axios.post(webhookUrl, {
+        msg_type: 'text',
+        content: { text: lines.join('\n') }
+      }, {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.data && response.data.code !== undefined && Number(response.data.code) !== 0) {
+        throw new Error('Lark API returned an error');
+      }
+
+      console.log(`Lark alert sent for ${website.name}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send Lark alert for ${website.name}: request failed`);
+      return false;
     }
   }
 
