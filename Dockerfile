@@ -7,7 +7,11 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0
 
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN if [ -f package-lock.json ]; then \
+      npm ci --omit=dev; \
+    else \
+      npm install --omit=dev --no-audit --no-fund; \
+    fi && npm cache clean --force
 
 COPY src ./src
 COPY public ./public
