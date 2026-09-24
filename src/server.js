@@ -6,6 +6,29 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
+const { execSync } = require('child_process');
+const fs = require('fs');
+const crypto = require('crypto');
+
+// Auto-generate a secure JWT_SECRET if the default placeholder is still in use
+(function ensureJwtSecret() {
+  const defaultSecret = 'your-super-secret-jwt-key-change-this-in-production';
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === defaultSecret) {
+    const generated = crypto.randomBytes(48).toString('hex');
+    process.env.JWT_SECRET = generated;
+    // Persist it to .env so the same secret survives restarts
+    const envPath = path.join(__dirname, '../.env');
+    try {
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+      if (envContent.includes('JWT_SECRET=')) {
+        envContent = envContent.replace(/^JWT_SECRET=.*$/m, `JWT_SECRET=${generated}`);
+      } else {
+        envContent += `\nJWT_SECRET=${generated}`;
+      }
+      fs.writeFileSync(envPath, envContent);
+    } catch (e) { /* non-fatal */ }
+  }
+})();
 
 // Initialize database first
 const { initializeDatabase, closeDatabase, forceSave } = require('./config/database');
@@ -129,14 +152,14 @@ async function startServer() {
       console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
-║   🖥️  Website Uptime Monitor v2.0                            ║
+║   🖥️  Website Uptime Monitor - Kokoro                        ║
 ║                                                              ║
-║   Server running at: http://${HOST}:${PORT}                     ║
-║   API endpoint:      http://${HOST}:${PORT}/api                 ║
+║   ✅ ระบบพร้อมใช้งานแล้ว!                                   ║
 ║                                                              ║
-║   🔐 Authentication: ENABLED                                 ║
-║   🛡️  Rate Limiting: ENABLED                                 ║
-║   💾 Database: SQLite                                        ║
+║   🌐 เปิดเบราว์เซอร์ไปที่:                                  ║
+║      http://${HOST}:${PORT}                                      ║
+║                                                              ║
+║   💡 ยังไม่มีบัญชี? ลงทะเบียนที่หน้าเว็บได้เลย            ║
 ║                                                              ║
 ╚══════════════════════════════════════════════════════════════╝
       `);
@@ -145,13 +168,21 @@ async function startServer() {
       const User = require('./models/User');
       const userCount = User.count();
       if (userCount === 0) {
-        console.log('⚠️  No users found. Please register the first admin user at:');
-        console.log(`   POST http://${HOST}:${PORT}/api/auth/register`);
-        console.log('   Body: { "username": "admin", "password": "your-password" }\n');
+        console.log('⚠️  ยังไม่มีบัญชีผู้ใช้ — เปิดเบราว์เซอร์แล้วสร้างบัญชี Admin ได้เลย!');
       }
 
       // Start monitoring all enabled websites
       monitorService.startAll();
+
+      // Auto-open browser
+      const url = `http://${HOST}:${PORT}`;
+      console.log(`\n🌐 กำลังเปิดเบราว์เซอร์ที่ ${url} ...`);
+      try {
+        const platform = process.platform;
+        if (platform === 'win32') execSync(`start ${url}`, { stdio: 'ignore' });
+        else if (platform === 'darwin') execSync(`open ${url}`, { stdio: 'ignore' });
+        else execSync(`xdg-open ${url}`, { stdio: 'ignore' });
+      } catch (e) { /* ไม่สามารถเปิดเบราว์เซอร์อัตโนมัติได้ กรุณาเปิดเอง */ }
     });
 
   } catch (error) {

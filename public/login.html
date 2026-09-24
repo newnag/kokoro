@@ -177,12 +177,16 @@
     <div class="logo">
       <i class="fas fa-heartbeat"></i>
       <h1>Website Uptime Monitor</h1>
-      <p>Real-time monitoring system</p>
+      <p id="logo-subtitle">ระบบตรวจสอบสถานะเว็บไซต์</p>
+    </div>
+
+    <div id="first-setup-banner" style="display:none; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; padding:14px 16px; border-radius:10px; margin-bottom:18px; font-size:0.95rem;">
+      👋 ยินดีต้อนรับ! ใช้งานครั้งแรก กรุณาสร้างบัญชี Admin ก่อน
     </div>
 
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('login')">Login</div>
-      <div class="tab" id="register-tab" onclick="switchTab('register')" style="display:none">Register</div>
+      <div class="tab active" id="login-tab" onclick="switchTab('login')">เข้าสู่ระบบ</div>
+      <div class="tab" id="register-tab" onclick="switchTab('register')" style="display:none">สร้างบัญชี</div>
     </div>
 
     <div id="error-message" class="error-message"></div>
@@ -192,16 +196,16 @@
     <div id="login-form" class="form-container active">
       <form onsubmit="handleLogin(event)">
         <div class="form-group">
-          <label for="login-username">Username</label>
-          <input type="text" id="login-username" placeholder="Enter your username" required>
+          <label for="login-username">ชื่อผู้ใช้</label>
+          <input type="text" id="login-username" placeholder="กรอกชื่อผู้ใช้" required>
         </div>
         <div class="form-group">
-          <label for="login-password">Password</label>
-          <input type="password" id="login-password" placeholder="Enter your password" required>
+          <label for="login-password">รหัสผ่าน</label>
+          <input type="password" id="login-password" placeholder="กรอกรหัสผ่าน" required>
         </div>
         <button type="submit" class="btn" id="login-btn">
           <i class="fas fa-sign-in-alt"></i>
-          Login
+          เข้าสู่ระบบ
         </button>
       </form>
     </div>
@@ -210,21 +214,21 @@
     <div id="register-form" class="form-container">
       <form onsubmit="handleRegister(event)">
         <div class="form-group">
-          <label for="register-username">Username</label>
-          <input type="text" id="register-username" placeholder="Choose a username" required minlength="3">
+          <label for="register-username">ชื่อผู้ใช้</label>
+          <input type="text" id="register-username" placeholder="ตั้งชื่อผู้ใช้ (ภาษาอังกฤษ)" required minlength="3">
         </div>
         <div class="form-group">
-          <label for="register-password">Password</label>
-          <input type="password" id="register-password" placeholder="Create a password" required minlength="8">
-          <p class="password-requirements">Minimum 8 characters</p>
+          <label for="register-password">รหัสผ่าน</label>
+          <input type="password" id="register-password" placeholder="ตั้งรหัสผ่านอย่างน้อย 8 ตัว" required minlength="8">
+          <p class="password-requirements">ต้องมีอย่างน้อย 8 ตัวอักษร</p>
         </div>
         <div class="form-group">
-          <label for="register-confirm">Confirm Password</label>
-          <input type="password" id="register-confirm" placeholder="Confirm your password" required>
+          <label for="register-confirm">ยืนยันรหัสผ่าน</label>
+          <input type="password" id="register-confirm" placeholder="กรอกรหัสผ่านอีกครั้ง" required>
         </div>
         <button type="submit" class="btn" id="register-btn">
           <i class="fas fa-user-plus"></i>
-          Register
+          สร้างบัญชี
         </button>
       </form>
     </div>
@@ -239,7 +243,7 @@
       window.location.href = '/';
     }
 
-    // Show Register tab only for first-time setup (no users yet)
+    // Show Register tab & auto-switch for first-time setup
     async function checkSetupStatus() {
       try {
         const response = await fetch(`${API_URL}/auth/setup-status`);
@@ -247,6 +251,10 @@
         if (result.data && result.data.needsSetup) {
           const tab = document.getElementById('register-tab');
           if (tab) tab.style.display = '';
+          // Auto-switch to register tab on first run
+          const banner = document.getElementById('first-setup-banner');
+          if (banner) banner.style.display = 'block';
+          switchTab('register');
         }
       } catch (e) {
         // Keep register tab hidden on error (fail-closed)
@@ -296,7 +304,7 @@
       const btn = document.getElementById('login-btn');
       
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Logging in...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังเข้าสู่ระบบ...';
       hideMessages();
       
       try {
@@ -313,13 +321,13 @@
           localStorage.setItem('user', JSON.stringify(result.data.user));
           window.location.href = '/';
         } else {
-          showError(result.error || 'Login failed');
+          showError(result.error || 'เข้าสู่ระบบไม่สำเร็จ');
         }
       } catch (error) {
-        showError('Connection error. Please try again.');
+        showError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+        btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> เข้าสู่ระบบ';
       }
     }
 
@@ -332,12 +340,12 @@
       const btn = document.getElementById('register-btn');
       
       if (password !== confirm) {
-        showError('Passwords do not match');
+        showError('รหัสผ่านไม่ตรงกัน');
         return;
       }
       
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังสร้างบัญชี...';
       hideMessages();
       
       try {
@@ -357,14 +365,14 @@
           if (result.details) {
             showError(result.details.map(d => d.message).join(', '));
           } else {
-            showError(result.error || 'Registration failed');
+            showError(result.error || 'สร้างบัญชีไม่สำเร็จ');
           }
         }
       } catch (error) {
-        showError('Connection error. Please try again.');
+        showError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
       } finally {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-user-plus"></i> Register';
+        btn.innerHTML = '<i class="fas fa-user-plus"></i> สร้างบัญชี';
       }
     }
   </script>
