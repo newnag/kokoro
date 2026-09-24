@@ -56,9 +56,20 @@ class NotificationService {
     }
   }
 
+  static getLarkWebhookUrl() {
+    return [
+      process.env.Lark_URL_API,
+      process.env.LARK_URL_API,
+      process.env.LARK_WEBHOOK_URL
+    ].find(value => typeof value === 'string' && value.trim())?.trim() || null;
+  }
+
   static async sendLarkAlert(website, checkResult, type, downtimeSeconds = null) {
-    const webhookUrl = process.env.Lark_URL_API;
-    if (!webhookUrl) return false;
+    const webhookUrl = this.getLarkWebhookUrl();
+    if (!webhookUrl) {
+      console.warn('Lark alert skipped: configure Lark_URL_API in the runtime environment');
+      return false;
+    }
 
     const isDown = type === 'down';
     const checkedAt = new Intl.DateTimeFormat('th-TH', {

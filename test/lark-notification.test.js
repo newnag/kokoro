@@ -68,6 +68,30 @@ test('sends recovery details and skips the webhook when it is not configured', a
   }
 });
 
+test('accepts the uppercase Dokploy environment variable alias', async () => {
+  const originalUrl = process.env.Lark_URL_API;
+  const originalUppercaseUrl = process.env.LARK_URL_API;
+  const originalPost = axios.post;
+  let called = false;
+  delete process.env.Lark_URL_API;
+  process.env.LARK_URL_API = 'https://lark.example/webhook';
+  axios.post = async () => {
+    called = true;
+    return { data: { code: 0 } };
+  };
+
+  try {
+    assert.equal(await NotificationService.sendLarkAlert(website, downResult, 'down'), true);
+    assert.equal(called, true);
+  } finally {
+    axios.post = originalPost;
+    if (originalUrl === undefined) delete process.env.Lark_URL_API;
+    else process.env.Lark_URL_API = originalUrl;
+    if (originalUppercaseUrl === undefined) delete process.env.LARK_URL_API;
+    else process.env.LARK_URL_API = originalUppercaseUrl;
+  }
+});
+
 test('handles Lark API errors and timeouts without throwing', async () => {
   const originalUrl = process.env.Lark_URL_API;
   const originalPost = axios.post;

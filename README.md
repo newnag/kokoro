@@ -76,6 +76,8 @@ JWT_EXPIRES_IN=7d
 Lark_URL_API=<Lark Custom Bot Webhook URL>
 ```
 
+ชื่อตัวแปรที่ระบบรองรับคือ `Lark_URL_API` (ตามตัวอย่าง) และ `LARK_URL_API` หากใช้ชื่อแบบตัวพิมพ์ใหญ่ใน Dokploy
+
 ถ้าใช้ SMTP ให้เพิ่ม `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` และ `SMTP_FROM` ด้วย ส่วน Discord/Slack ใช้ตัวแปรเดิมใน `.env.example`
 
 ข้อมูลระบบอยู่ใน SQLite ที่ `/app/data/monitor.sqlite` จึงต้องเพิ่ม Volume Mount ใน Dokploy โดย mount Docker volume ไปที่ `/app/data` ก่อน deploy และอย่าตั้ง replica มากกว่า 1 เพราะระบบใช้ SQLite ในเครื่องเดียว
