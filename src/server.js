@@ -85,6 +85,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 const io = new Server(server, {
   cors: corsOptions
 });
+let monitorService;
+let shuttingDown = false;
 
 // Start server
 async function startServer() {
@@ -94,7 +96,7 @@ async function startServer() {
 
     // Initialize Monitor Service
     const MonitorService = require('./services/MonitorService');
-    const monitorService = new MonitorService(io);
+    monitorService = new MonitorService(io);
 
     // Routes
     const authRoutes = require('./routes/auth');
@@ -118,8 +120,12 @@ async function startServer() {
 
       socket.on('check-website', async (websiteId) => {
         const website = Website.findById(websiteId);
-        if (website) {
-          await monitorService.checkWebsite(website);
+        if (website?.enabled && !shuttingDown) {
+          try {
+            await monitorService.checkWebsite(website);
+          } catch (error) {
+            console.error('Manual check failed:', error.message);
+          }
         }
       });
     });
@@ -193,7 +199,16 @@ async function startServer() {
 
 // Graceful shutdown
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log('\n\n🛑 Shutting down gracefully...');
+
+  const deadline = setTimeout(() => process.exit(1), 15000);
+  deadline.unref();
+  // Stop accepting work before draining checks and notification writes.
+  server.close();
+  io.disconnectSockets(true);
+  if (monitorService) await monitorService.stopAll();
   
   // Force save database
   forceSave();
@@ -201,17 +216,8 @@ async function shutdown() {
   // Close database connection
   closeDatabase();
   
-  // Close server
-  server.close(() => {
-    console.log('✅ Server closed');
-    process.exit(0);
-  });
-
-  // Force exit after 10 seconds
-  setTimeout(() => {
-    console.log('⚠️ Forcing exit...');
-    process.exit(1);
-  }, 10000);
+  clearTimeout(deadline);
+  process.exit(0);
 }
 
 process.on('SIGINT', shutdown);

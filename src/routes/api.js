@@ -240,9 +240,9 @@ module.exports = (monitorService) => {
       
       const stats = {
         total_websites: websites.length,
-        online: websites.filter(w => w.latest_status === 'online').length,
-        offline: websites.filter(w => w.latest_status === 'offline').length,
-        unknown: websites.filter(w => !w.latest_status).length,
+        online: websites.filter(w => w.confirmed_status === 'online').length,
+        offline: websites.filter(w => w.confirmed_status === 'offline').length,
+        unknown: websites.filter(w => w.confirmed_status === 'unknown').length,
         recent_incidents: recentIncidents
       };
 
@@ -271,6 +271,7 @@ module.exports = (monitorService) => {
     res.json({ 
       success: true, 
       status: 'healthy',
+      ...require('../config/runtime'),
       timestamp: new Date().toISOString()
     });
   });

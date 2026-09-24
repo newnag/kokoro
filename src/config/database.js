@@ -3,8 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 // Database file path
-const dataDir = path.join(__dirname, '../../data');
-const dbPath = path.join(dataDir, 'monitor.sqlite');
+const dbPath = process.env.MONITOR_DB_PATH
+  ? path.resolve(process.env.MONITOR_DB_PATH)
+  : path.join(__dirname, '../../data/monitor.sqlite');
+const dataDir = path.dirname(dbPath);
 
 let db = null;
 let saveTimeout = null;
@@ -23,9 +25,12 @@ function saveToFile() {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+    // Replace the snapshot only after writing it completely (one process per volume).
+    fs.writeFileSync(`${dbPath}.tmp`, buffer);
+    fs.renameSync(`${dbPath}.tmp`, dbPath);
   } catch (error) {
     console.error('Error saving database:', error);
+    throw error;
   }
 }
 
@@ -128,6 +133,18 @@ async function initializeDatabase() {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    // Additive upgrade: retain existing websites, history and incidents.
+    const websiteColumns = all('PRAGMA table_info(websites)').map(column => column.name);
+    if (!websiteColumns.includes('confirmed_status')) {
+      db.run("ALTER TABLE websites ADD COLUMN confirmed_status TEXT NOT NULL DEFAULT 'unknown'");
+    }
+    const incidentColumns = all('PRAGMA table_info(incidents)').map(column => column.name);
+    for (const column of ['down_notification', 'up_notification']) {
+      if (!incidentColumns.includes(column)) {
+        db.run(`ALTER TABLE incidents ADD COLUMN ${column} TEXT`);
+      }
+    }
 
     // Save initial schema
     saveToFile();

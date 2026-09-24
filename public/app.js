@@ -62,11 +62,10 @@ socket.on('status-update', (update) => {
   // Update local state
   const index = websites.findIndex(w => w.id === update.id);
   if (index !== -1) {
-    const prevStatus = websites[index].latest_status;
-    
     websites[index] = {
       ...websites[index],
       latest_status: update.status,
+      confirmed_status: update.confirmed_status,
       latest_status_code: update.status_code,
       latest_response_time: update.response_time,
       last_checked_at: update.checked_at,
@@ -75,18 +74,18 @@ socket.on('status-update', (update) => {
     renderWebsites();
     updateStats();
     
-    // Show notification for status changes
-    if (prevStatus !== update.status) {
-      if (update.status === 'offline') {
+    // Only confirmed server transitions generate browser notifications.
+    if (update.transition) {
+      if (update.transition === 'down') {
         showToast(`🔴 ${update.name} is OFFLINE!`, 'error');
         // Request browser notification
-        if (Notification.permission === 'granted') {
+        if ('Notification' in window && Notification.permission === 'granted') {
           new Notification('Website Down!', {
             body: `${update.name} is offline`,
             icon: '/favicon.ico'
           });
         }
-      } else if (update.status === 'online' && prevStatus === 'offline') {
+      } else if (update.transition === 'up') {
         showToast(`🟢 ${update.name} is back ONLINE!`, 'success');
       }
     }
@@ -140,7 +139,7 @@ function renderWebsites() {
   emptyState.style.display = 'none';
 
   websitesGrid.innerHTML = websites.map(website => {
-    const status = website.latest_status || 'unknown';
+    const status = website.confirmed_status || 'unknown';
     const statusClass = status;
     const statusIcon = status === 'online' ? 'fa-check-circle' :
                        status === 'offline' ? 'fa-times-circle' : 'fa-question-circle';
@@ -156,6 +155,13 @@ function renderWebsites() {
             <i class="fas ${statusIcon}"></i>
             ${status.toUpperCase()}
           </span>
+        </div>
+        <div class="check-summary">
+          <div>สถานะยืนยัน: ${status === 'unknown' ? 'รอยืนยัน' : status.toUpperCase()}</div>
+          <div>ผลตรวจล่าสุด: ${!website.last_checked_at ? 'ยังไม่ได้ตรวจ'
+            : !Number.isInteger(website.latest_status_code) ? 'ตรวจไม่สำเร็จ'
+            : `${website.latest_status === 'online' ? 'ตอบกลับตามที่คาดไว้' : 'HTTP ไม่ตรงค่าที่ตั้งไว้'} (${website.latest_status_code})`}</div>
+          ${website.latest_error ? `<div>${escapeHtml(website.latest_error)}</div>` : ''}
         </div>
         <div class="card-stats">
           <div class="card-stat">
@@ -186,8 +192,8 @@ function renderWebsites() {
 
 // Update stats
 function updateStats() {
-  const online = websites.filter(w => w.latest_status === 'online').length;
-  const offline = websites.filter(w => w.latest_status === 'offline').length;
+  const online = websites.filter(w => w.confirmed_status === 'online').length;
+  const offline = websites.filter(w => w.confirmed_status === 'offline').length;
   
   onlineCount.textContent = online;
   offlineCount.textContent = offline;
@@ -254,7 +260,7 @@ async function showWebsiteDetails(id) {
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-value">${stats?.data?.overview?.uptime_percentage || 0}%</div>
-          <div class="stat-label">Uptime (30 days)</div>
+          <div class="stat-label">ผลตรวจสำเร็จ (30 วัน รวม timeout ในยอดตรวจ)</div>
         </div>
         <div class="stat-card">
           <div class="stat-value">${Math.round(stats?.data?.overview?.avg_response_time) || 0}ms</div>
@@ -272,15 +278,15 @@ async function showWebsiteDetails(id) {
       <div style="max-height: 300px; overflow-y: auto;">
         ${history?.data?.map(h => `
           <div class="incident-item">
-            <div class="incident-icon ${h.status === 'online' ? 'up' : 'down'}">
-              <i class="fas ${h.status === 'online' ? 'fa-check' : 'fa-times'}"></i>
+            <div class="incident-icon ${!Number.isInteger(h.status_code) ? 'unknown' : h.status === 'online' ? 'up' : 'down'}">
+              <i class="fas ${!Number.isInteger(h.status_code) ? 'fa-question' : h.status === 'online' ? 'fa-check' : 'fa-times'}"></i>
             </div>
             <div class="incident-content">
-              <div class="incident-title">${h.status.toUpperCase()}</div>
+              <div class="incident-title">${Number.isInteger(h.status_code) ? h.status.toUpperCase() : 'ตรวจไม่สำเร็จ'}</div>
               <div class="incident-details">
                 ${h.status === 'online' 
                   ? `${h.response_time}ms - Status ${h.status_code}` 
-                  : h.error_message}
+                  : escapeHtml(h.error_message || '')}
               </div>
             </div>
             <div class="incident-time">${formatTime(h.checked_at)}</div>

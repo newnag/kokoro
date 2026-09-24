@@ -2,66 +2,44 @@ const nodemailer = require('nodemailer');
 const axios = require('axios');
 const AlertSetting = require('../models/AlertSetting');
 require('dotenv').config();
+const hasHttpStatus = require('../utils/httpStatus');
+const runtime = require('../config/runtime');
 
 class NotificationService {
   static async sendDownAlert(website, checkResult) {
-    if (!this.hasHttpStatus(checkResult)) return false;
-    await this.sendLarkAlert(website, checkResult, 'down');
-    const alerts = AlertSetting.findByWebsiteId(website.id);
-    
-    for (const alert of alerts) {
-      try {
-        switch (alert.alert_type) {
-          case 'email':
-            await this.sendEmail(website, checkResult, 'down', alert.config);
-            break;
-          case 'discord':
-            await this.sendDiscord(website, checkResult, 'down', alert.config);
-            break;
-          case 'slack':
-            await this.sendSlack(website, checkResult, 'down', alert.config);
-            break;
-          case 'webhook':
-            await this.sendWebhook(website, checkResult, 'down', alert.config);
-            break;
-        }
-      } catch (error) {
-        console.error(`Failed to send ${alert.alert_type} alert:`, error.message);
-      }
-    }
+    return this.sendAlerts(website, checkResult, 'down');
   }
 
   static async sendUpAlert(website, checkResult, downtimeSeconds) {
-    if (!this.hasHttpStatus(checkResult)) return false;
-    await this.sendLarkAlert(website, checkResult, 'up', downtimeSeconds);
-    const alerts = AlertSetting.findByWebsiteId(website.id);
-    
-    for (const alert of alerts) {
-      try {
-        switch (alert.alert_type) {
-          case 'email':
-            await this.sendEmail(website, checkResult, 'up', alert.config, downtimeSeconds);
-            break;
-          case 'discord':
-            await this.sendDiscord(website, checkResult, 'up', alert.config, downtimeSeconds);
-            break;
-          case 'slack':
-            await this.sendSlack(website, checkResult, 'up', alert.config, downtimeSeconds);
-            break;
-          case 'webhook':
-            await this.sendWebhook(website, checkResult, 'up', alert.config, downtimeSeconds);
-            break;
-        }
-      } catch (error) {
-        console.error(`Failed to send ${alert.alert_type} alert:`, error.message);
-      }
-    }
+    return this.sendAlerts(website, checkResult, 'up', downtimeSeconds);
   }
 
-  static hasHttpStatus(checkResult) {
-    const statusCode = Number(checkResult?.status_code);
-    return Number.isInteger(statusCode) && statusCode >= 100 && statusCode <= 599;
+  static async sendAlerts(website, checkResult, type, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
+    const deliveries = [];
+    const larkConfigured = !!this.getLarkWebhookUrl();
+    const larkSent = await this.sendLarkAlert(website, checkResult, type, downtimeSeconds);
+    deliveries.push({ channel: 'lark',
+      status: !larkConfigured ? 'skipped' : larkSent ? 'sent' : 'failed' });
+
+    const senders = { email: 'sendEmail', discord: 'sendDiscord', slack: 'sendSlack', webhook: 'sendWebhook' };
+    for (const alert of AlertSetting.findByWebsiteId(website.id)) {
+      try {
+        const method = senders[alert.alert_type];
+        const sent = method
+          ? await this[method](website, checkResult, type, alert.config, downtimeSeconds) : false;
+        deliveries.push({ channel: alert.alert_type, alert_id: alert.id,
+          status: sent === false ? 'skipped' : 'sent' });
+      } catch (error) {
+        deliveries.push({ channel: alert.alert_type, alert_id: alert.id, status: 'failed' });
+        console.error(JSON.stringify({ event: 'notification.failed', ...runtime,
+          website_id: website.id, channel: alert.alert_type, type }));
+      }
+    }
+    return deliveries;
   }
+
+  static hasHttpStatus(checkResult) { return hasHttpStatus(checkResult); }
 
   static getLarkWebhookUrl() {
     return [
@@ -72,6 +50,7 @@ class NotificationService {
   }
 
   static async sendLarkAlert(website, checkResult, type, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     const webhookUrl = this.getLarkWebhookUrl();
     if (!webhookUrl) {
       console.warn('Lark alert skipped: configure Lark_URL_API in the runtime environment');
@@ -114,19 +93,28 @@ class NotificationService {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (response.data && response.data.code !== undefined && Number(response.data.code) !== 0) {
-        throw new Error('Lark API returned an error');
+      const code = response.data?.code ?? response.data?.StatusCode;
+      if (code !== 0) {
+        const error = new Error('Lark API returned an error or unexpected response');
+        error.larkCode = Number.isInteger(code) ? code : 'invalid_response';
+        throw error;
       }
 
-      console.log(`Lark alert sent for ${website.name}`);
+      console.log(JSON.stringify({ event: 'lark.sent', ...runtime, website_id: website.id, type }));
       return true;
     } catch (error) {
-      console.error(`Failed to send Lark alert for ${website.name}: request failed`);
+      console.error(JSON.stringify({ event: 'lark.failed', ...runtime,
+        website_id: website.id, type,
+        http_status: Number.isInteger(error.response?.status) ? error.response.status : null,
+        lark_code: error.larkCode ?? null,
+        reason: ['ECONNABORTED', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED'].includes(error.code)
+          ? error.code : 'request_failed' }));
       return false;
     }
   }
 
   static async sendEmail(website, checkResult, type, config, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
@@ -177,8 +165,9 @@ class NotificationService {
   }
 
   static async sendDiscord(website, checkResult, type, config, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     const webhookUrl = config.webhook_url || process.env.DISCORD_WEBHOOK_URL;
-    if (!webhookUrl) return;
+    if (!webhookUrl) return false;
 
     const isDown = type === 'down';
     const color = isDown ? 15158332 : 3066993; // Red or Green
@@ -209,8 +198,9 @@ class NotificationService {
   }
 
   static async sendSlack(website, checkResult, type, config, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     const webhookUrl = config.webhook_url || process.env.SLACK_WEBHOOK_URL;
-    if (!webhookUrl) return;
+    if (!webhookUrl) return false;
 
     const isDown = type === 'down';
     const emoji = isDown ? ':red_circle:' : ':large_green_circle:';
@@ -255,8 +245,9 @@ class NotificationService {
   }
 
   static async sendWebhook(website, checkResult, type, config, downtimeSeconds = null) {
+    if (!this.hasHttpStatus(checkResult)) return false;
     const webhookUrl = config.webhook_url;
-    if (!webhookUrl) return;
+    if (!webhookUrl) return false;
 
     const payload = {
       event: type === 'down' ? 'website.down' : 'website.up',

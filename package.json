@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "node src/test-monitor.js",
-    "test:lark": "node --test test/lark-notification.test.js"
+    "test:lark": "node --test test/lark-notification.test.js test/monitor-stability.test.js test/monitor-ui.test.js"
   },
   "keywords": [
     "uptime",

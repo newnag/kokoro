@@ -37,6 +37,10 @@ class Website {
     return all('SELECT * FROM websites WHERE enabled = 1');
   }
 
+  static setConfirmedStatus(id, status) {
+    run('UPDATE websites SET confirmed_status = ? WHERE id = ?', [status, id]);
+  }
+
   static update(id, data) {
     const fields = [];
     const values = [];
@@ -94,21 +98,10 @@ class Website {
         h.checked_at as last_checked_at,
         h.error_message as latest_error
       FROM websites w
-      LEFT JOIN (
-        SELECT 
-          ch1.website_id,
-          ch1.status,
-          ch1.status_code,
-          ch1.response_time,
-          ch1.checked_at,
-          ch1.error_message
-        FROM check_history ch1
-        INNER JOIN (
-          SELECT website_id, MAX(checked_at) as max_checked
-          FROM check_history
-          GROUP BY website_id
-        ) ch2 ON ch1.website_id = ch2.website_id AND ch1.checked_at = ch2.max_checked
-      ) h ON w.id = h.website_id
+      LEFT JOIN check_history h ON h.id = (
+        SELECT id FROM check_history WHERE website_id = w.id
+        ORDER BY checked_at DESC, id DESC LIMIT 1
+      )
       ORDER BY w.created_at DESC
     `);
   }

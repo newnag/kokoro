@@ -661,6 +661,19 @@ section h2 i {
 }
 
 /* Uptime Bar */
+.check-summary {
+  font-size: 0.8rem;
+  color: var(--gray-600);
+  line-height: 1.5;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+.incident-icon.unknown {
+  color: var(--gray-600);
+  background: var(--gray-100);
+}
+
 .uptime-bar {
   display: flex;
   gap: 2px;

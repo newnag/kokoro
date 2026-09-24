@@ -62,6 +62,21 @@ Lark_URL_API=https://open.larksuite.com/open-apis/bot/v2/hook/...
 
 ระบบจะแจ้งเมื่อเว็บไซต์ขัดข้องและเมื่อกลับมาใช้งานได้ การเว้นค่านี้ว่างไว้จะปิดการแจ้งเตือน Lark
 
+### การยืนยันสถานะและลดการแจ้งเตือนผิดพลาด
+
+- นับเฉพาะ HTTP status ที่เป็นจำนวนเต็ม `100–599` เท่านั้น โดยยังเทียบกับ `expected_status` ของแต่ละเว็บ
+- ต้องตอบ HTTP ผิดจากที่ตั้งไว้ **3 ครั้งติดกัน** จึงสร้าง incident และส่ง down alert ครั้งเดียว ระหว่างที่ยังล่มจะไม่ส่งซ้ำ
+- ต้องตอบ HTTP ตรงกับที่ตั้งไว้ **2 ครั้งติดกัน** จึงยืนยัน ONLINE และส่ง recovery หากมี incident เปิดอยู่ เว็บใหม่ต้องผ่าน 2 ครั้งเช่นกัน แต่ไม่ส่ง recovery
+- Timeout, DNS failure, connection reset/refused และผลที่ไม่มี HTTP status จะบันทึกประวัติเป็น `unknown` แสดงว่า **ตรวจไม่สำเร็จ** ไม่เปิด/ปิด incident และไม่แจ้งเตือนทุกช่องทาง รวมถึง browser notification ผลเหล่านี้ตัดลำดับการนับต่อเนื่องและคงสถานะยืนยันเดิม
+- Dashboard แยก **สถานะยืนยัน** จาก **ผลตรวจล่าสุด** ดังนั้นเว็บอาจมีสถานะยืนยัน ONLINE แต่ผลล่าสุดตรวจไม่สำเร็จได้ หากเกิด N/A ต่อเนื่องจะยังไม่แจ้งเตือนตามนโยบายนี้ ค่าเปอร์เซ็นต์ในประวัติยังเป็นสัดส่วนผลตรวจสำเร็จ โดยรวม timeout ในจำนวนครั้งทั้งหมด
+- Check Now และการตรวจตามเวลาของเว็บเดียวกันใช้คำขอที่กำลังทำงานร่วมกัน ป้องกันผลเก่าทับผลใหม่และการนับซ้ำจากคำขอซ้อนกัน การตรวจแต่ละครั้งที่เสร็จแล้วนับเป็นหนึ่งครั้ง รวมถึง Check Now
+
+ที่ Interval 30 วินาที การยืนยัน down ใช้ 3 รอบ (ประมาณ 60 วินาทีนับจากผลเสียครั้งแรก หรือราว 60–90 วินาทีหลังเริ่มมีปัญหาเมื่อคำขอตอบเร็ว) ส่วน recovery ต้องผ่าน 2 รอบ เวลาจริงขึ้นกับระยะเวลาตรวจและการส่งแจ้งเตือนด้วย ไม่ได้เพิ่ม retry หรือเปลี่ยน interval/timeout เดิม
+
+สถานะยืนยันและผลการส่งแยกตามช่องทางจะเก็บใน SQLite ก่อน/หลังส่ง เมื่อรีสตาร์ทจะอ่าน incident เดิมเพื่อไม่เปิดซ้ำ ตัวนับที่ยังไม่ครบเกณฑ์เริ่มนับใหม่ หากมี incident เก่าค้างอยู่จะรอยืนยัน recovery 2 ครั้งแล้วปิดรายการค้างของเว็บนั้น ไม่ลบประวัติเก่า
+
+รุ่นนี้เพิ่มคอลัมน์ `websites.confirmed_status`, `incidents.down_notification` และ `incidents.up_notification` อัตโนมัติเมื่อเริ่มโปรแกรม โดยไม่ลบข้อมูลเดิม ผลส่งแต่ละช่องทางเป็น `sent`, `failed` หรือ `skipped`; สถานะรวม `completed` หมายถึงจบการพยายามส่ง ไม่ได้รับประกันว่าทุกช่องทางสำเร็จ หากโปรแกรมหยุดระหว่างส่งจะค้างที่ `sending` ซึ่งแปลว่าไม่ทราบผลแน่นอน และจะไม่ retry อัตโนมัติเพื่อหลีกเลี่ยงข้อความซ้ำ
+
 ### Deploy บน Dokploy
 
 โปรเจกต์มี `Dockerfile` สำหรับ production อยู่ที่ root แล้ว ให้สร้าง Application จาก Git repository และเลือก Build Type เป็น **Dockerfile** โดยใช้ port ภายใน `3000` จากนั้นตั้งค่า domain ให้ชี้มายัง port นี้
@@ -80,9 +95,21 @@ Lark_URL_API=<Lark Custom Bot Webhook URL>
 
 ถ้าใช้ SMTP ให้เพิ่ม `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` และ `SMTP_FROM` ด้วย ส่วน Discord/Slack ใช้ตัวแปรเดิมใน `.env.example`
 
-ข้อมูลระบบอยู่ใน SQLite ที่ `/app/data/monitor.sqlite` จึงต้องเพิ่ม Volume Mount ใน Dokploy โดย mount Docker volume ไปที่ `/app/data` ก่อน deploy และอย่าตั้ง replica มากกว่า 1 เพราะระบบใช้ SQLite ในเครื่องเดียว
+ข้อมูลระบบอยู่ใน SQLite ที่ `/app/data/monitor.sqlite` จึงต้องเพิ่ม Volume Mount ใน Dokploy โดย mount Docker volume ไปที่ `/app/data` ก่อน deploy และตั้ง **Replicas = 1** โปรแกรม SQL.js โหลดฐานข้อมูลเป็น snapshot ในหน่วยความจำ จึงไม่รองรับหลาย process เขียนไฟล์เดียวกัน
+
+ใน **Advanced → Swarm Settings → Update Config** และ **Rollback Config** ตั้ง **Order = stop-first** เพื่อหยุด container เก่าก่อนเริ่มตัวใหม่ ลดการตรวจ/ส่งซ้ำและการเขียนฐานข้อมูลทับกันระหว่าง deploy อย่ารัน local monitor หรือ Application อีกตัวตรวจเว็บไซต์ชุดเดียวกันด้วย Webhook เดียวกัน หากต้องการเลี่ยงข้อความซ้ำ ดูตำแหน่งการตั้งค่าที่ [Dokploy Advanced](https://docs.dokploy.com/docs/core/applications/advanced)
+
+ก่อนอัปเกรดให้หยุด instance เก่าและสำรอง volume ฐานข้อมูล จากนั้น deploy รุ่นใหม่โดยใช้ volume เดิม ไม่ต้องลบฐานข้อมูลหรือรันสคริปต์สร้างข้อมูลตัวอย่าง สามารถใส่ `APP_REVISION=<commit SHA>` ใน Environment เพื่อระบุรุ่นที่ deploy ได้
 
 หลัง deploy ให้ตรวจ `https://โดเมนของคุณ/api/health` ต้องตอบ JSON ที่มี `"status":"healthy"` และตรวจ log ว่า server listen ที่ port `3000`
+
+Health response และ log `monitor.started`, `monitor.transition`, `lark.sent`, `lark.failed` มี `revision`, `monitor_build` และ `instance` เพื่อแยกว่า log มาจากโค้ด/โปรเซสใด โดย `monitor_build` คำนวณจากไฟล์บริการตรวจและแจ้งเตือนจริง หากยังมีข้อความ N/A หลังอัปเกรด ให้ตรวจว่ารุ่นเก่าหรือ instance อีกตัวยังทำงานหรือไม่ ค่า health นี้บอกว่า HTTP server ทำงาน ไม่ใช่การรับประกันว่าส่ง Lark สำเร็จ
+
+### ทดสอบการแจ้งเตือนก่อน deploy
+
+รัน `npm run test:lark` (Windows ใช้ `npm.cmd run test:lark`) ครอบคลุม N/A, HTTP ที่สลับสถานะ, เกณฑ์ยืนยัน, การเปิดฐานข้อมูลซ้ำ, คำขอซ้อนกัน, Lark ล้มเหลว และ dashboard โดยจำลอง HTTP/ช่องทางแจ้งเตือน และใช้ SQLite ชั่วคราวแยกจากข้อมูลจริง ไม่ส่งข้อความเข้ากลุ่มจริง
+
+อย่าใช้ `npm test` เพื่อทดสอบ regression ชุดนี้ เพราะคำสั่งเดิมใช้สร้างข้อมูลตัวอย่าง
 
 **เปิด `start.bat` แล้วหน้าต่างปิดไปเอง**
 → ติดตั้ง Node.js ก่อน (ดูขั้นตอนที่ 1)

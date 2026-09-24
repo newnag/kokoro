@@ -21,11 +21,25 @@ class Incident {
     return { changes: 1 };
   }
 
+  static recordNotification(incidentId, type, result) {
+    const column = type === 'down' ? 'down_notification' : 'up_notification';
+    run(`UPDATE incidents SET ${column} = ? WHERE id = ?`, [JSON.stringify({
+      ...result, attempted_at: new Date().toISOString()
+    }), incidentId]);
+  }
+
+  static resolveActiveByWebsiteId(websiteId) {
+    // Old releases could leave multiple active rows after restarts.
+    run(`UPDATE incidents SET resolved_at = CURRENT_TIMESTAMP,
+      duration_seconds = MAX(0, CAST((julianday(CURRENT_TIMESTAMP) - julianday(started_at)) * 86400 AS INTEGER))
+      WHERE website_id = ? AND resolved_at IS NULL`, [websiteId]);
+  }
+
   static findActiveByWebsiteId(websiteId) {
     return get(`
       SELECT * FROM incidents 
       WHERE website_id = ? AND resolved_at IS NULL
-      ORDER BY started_at DESC
+      ORDER BY started_at ASC, id ASC
       LIMIT 1
     `, [websiteId]);
   }

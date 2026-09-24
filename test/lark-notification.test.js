@@ -3,9 +3,14 @@ const assert = require('node:assert/strict');
 const axios = require('axios');
 const NotificationService = require('../src/services/NotificationService');
 const AlertSetting = require('../src/models/AlertSetting');
-const Incident = require('../src/models/Incident');
-const CheckHistory = require('../src/models/CheckHistory');
-const MonitorService = require('../src/services/MonitorService');
+
+test.beforeEach(t => {
+  for (const key of ['Lark_URL_API', 'LARK_URL_API', 'LARK_WEBHOOK_URL']) {
+    const value = process.env[key];
+    delete process.env[key];
+    t.after(() => { if (value === undefined) delete process.env[key]; else process.env[key] = value; });
+  }
+});
 
 const website = { id: 1, name: 'เว็บทดสอบ', url: 'https://example.com' };
 const downResult = {
@@ -86,7 +91,7 @@ test('sends recovery details and skips the webhook when it is not configured', a
     calls += 1;
     assert.match(args[1].content.text, /กลับมาใช้งานได้/);
     assert.match(args[1].content.text, /ระยะเวลาที่ขัดข้อง: 2 minutes 5 seconds/);
-    return { data: {} };
+    return { data: { code: 0 } };
   };
 
   try {
@@ -147,35 +152,6 @@ test('handles Lark API errors and timeouts without throwing', async () => {
   }
 });
 
-test('does not duplicate alerts while a website remains offline', async () => {
-  const monitor = new MonitorService({ emit() {} });
-  const originalDown = NotificationService.sendDownAlert;
-  const originalUp = NotificationService.sendUpAlert;
-  const originalCreate = Incident.create;
-  const originalFindActive = Incident.findActiveByWebsiteId;
-  const originalResolve = Incident.resolve;
-  const calls = { down: 0, up: 0 };
-  NotificationService.sendDownAlert = async () => { calls.down += 1; };
-  NotificationService.sendUpAlert = async () => { calls.up += 1; };
-  Incident.create = () => 1;
-  Incident.findActiveByWebsiteId = () => ({ id: 1, started_at: new Date().toISOString() });
-  Incident.resolve = () => {};
-
-  try {
-    await monitor.handleStatusChange(website, downResult);
-    await monitor.handleStatusChange(website, downResult);
-    assert.deepEqual(calls, { down: 1, up: 0 });
-    await monitor.handleStatusChange(website, upResult);
-    assert.deepEqual(calls, { down: 1, up: 1 });
-  } finally {
-    NotificationService.sendDownAlert = originalDown;
-    NotificationService.sendUpAlert = originalUp;
-    Incident.create = originalCreate;
-    Incident.findActiveByWebsiteId = originalFindActive;
-    Incident.resolve = originalResolve;
-  }
-});
-
 test('continues existing alerts when the Lark request fails', async () => {
   const originalUrl = process.env.Lark_URL_API;
   const originalPost = axios.post;
@@ -225,66 +201,60 @@ test('skips every notification channel when there is no HTTP status', async () =
   }
 });
 
-test('does not transition monitor state or create an incident for a timeout', async () => {
-  const monitor = new MonitorService({ emit() {} });
-  const originalGet = axios.get;
-  const originalHistoryCreate = CheckHistory.create;
-  const originalCreate = Incident.create;
-  let incidentCalls = 0;
-  axios.get = async () => {
-    const error = new Error('timeout');
-    error.code = 'ECONNABORTED';
-    throw error;
-  };
-  CheckHistory.create = () => {};
-  Incident.create = () => { incidentCalls += 1; };
-
-  try {
-    monitor.websiteStatus.set(website.id, 'online');
-    const result = await monitor.checkWebsite({ ...website, expected_status: 200, timeout: 10000 });
-    assert.equal(result.status, 'offline');
-    assert.equal(result.status_code, null);
-    assert.equal(monitor.websiteStatus.get(website.id), 'online');
-    assert.equal(incidentCalls, 0);
-  } finally {
-    axios.get = originalGet;
-    CheckHistory.create = originalHistoryCreate;
-    Incident.create = originalCreate;
+test('all direct senders reject absent, coerced and invalid HTTP status values before I/O', async t => {
+  let calls = 0;
+  t.mock.method(axios, 'post', async () => { calls++; return { data: { code: 0 } }; });
+  t.mock.method(require('nodemailer'), 'createTransport', () => { calls++; throw new Error('Unexpected SMTP'); });
+  t.mock.method(AlertSetting, 'findByWebsiteId', () => { calls++; return []; });
+  process.env.Lark_URL_API = 'https://example.invalid/mock';
+  const senders = ['sendLarkAlert', 'sendEmail', 'sendDiscord', 'sendSlack', 'sendWebhook'];
+  for (const status_code of [null, undefined, 'N/A', '', '503', [503], {}, true, 0, 99, 600, 200.5, NaN, Infinity]) {
+    const result = { ...downResult, status_code };
+    assert.equal(await NotificationService.sendDownAlert(website, result), false);
+    assert.equal(await NotificationService.sendUpAlert(website, result, 10), false);
+    for (const sender of senders) {
+      assert.equal(await NotificationService[sender](website, result, 'down', {}), false, sender);
+    }
+  }
+  assert.equal(calls, 0);
+  for (const status_code of [100, 200, 403, 500, 503, 599]) {
+    assert.equal(NotificationService.hasHttpStatus({ status_code }), true);
   }
 });
 
-test('does not resolve or create incidents when an existing incident sees a timeout', async () => {
-  const monitor = new MonitorService({ emit() {} });
-  const originalGet = axios.get;
-  const originalHistoryCreate = CheckHistory.create;
-  const originalCreate = Incident.create;
-  const originalFindActive = Incident.findActiveByWebsiteId;
-  const originalResolve = Incident.resolve;
-  let createCalls = 0;
-  let findActiveCalls = 0;
-  let resolveCalls = 0;
-  axios.get = async () => {
-    const error = new Error('timeout');
-    error.code = 'ECONNABORTED';
-    throw error;
-  };
-  CheckHistory.create = () => {};
-  Incident.create = () => { createCalls += 1; };
-  Incident.findActiveByWebsiteId = () => { findActiveCalls += 1; return { id: 1 }; };
-  Incident.resolve = () => { resolveCalls += 1; };
+test('does not claim Lark success for an invalid response body', async t => {
+  process.env.Lark_URL_API = 'https://example.invalid/mock';
+  t.mock.method(axios, 'post', async () => ({ data: '<html>gateway</html>' }));
+  assert.equal(await NotificationService.sendLarkAlert(website, downResult, 'down'), false);
+});
 
-  try {
-    monitor.websiteStatus.set(website.id, 'offline');
-    await monitor.checkWebsite({ ...website, expected_status: 200, timeout: 10000 });
-    assert.equal(monitor.websiteStatus.get(website.id), 'offline');
-    assert.equal(createCalls, 0);
-    assert.equal(findActiveCalls, 0);
-    assert.equal(resolveCalls, 0);
-  } finally {
-    axios.get = originalGet;
-    CheckHistory.create = originalHistoryCreate;
-    Incident.create = originalCreate;
-    Incident.findActiveByWebsiteId = originalFindActive;
-    Incident.resolve = originalResolve;
-  }
+test('HTTP errors produce safe diagnostic fields without exposing webhook secrets', async t => {
+  const secret = 'https://example.invalid/private-webhook-token';
+  process.env.Lark_URL_API = secret;
+  const logs = [];
+  t.mock.method(console, 'error', message => logs.push(message));
+  t.mock.method(axios, 'post', async () => {
+    throw Object.assign(new Error(`Failed POST ${secret}`), {
+      response: { status: 429 }, config: { url: secret }
+    });
+  });
+  assert.equal(await NotificationService.sendLarkAlert(website, downResult, 'down'), false);
+  assert.equal(JSON.parse(logs[0]).http_status, 429);
+  assert.equal(logs.join('').includes(secret), false);
+});
+
+test('recognizes the legacy Lark success code and reports per-channel delivery results', async t => {
+  process.env.Lark_URL_API = 'https://example.invalid/mock';
+  t.mock.method(axios, 'post', async () => ({ data: { StatusCode: 0 } }));
+  t.mock.method(AlertSetting, 'findByWebsiteId', () => [
+    { id: 1, alert_type: 'email', config: {} },
+    { id: 2, alert_type: 'webhook', config: {} }
+  ]);
+  t.mock.method(NotificationService, 'sendEmail', async () => { throw new Error('SMTP failed'); });
+  t.mock.method(NotificationService, 'sendWebhook', async () => {});
+  assert.deepEqual(await NotificationService.sendDownAlert(website, downResult), [
+    { channel: 'lark', status: 'sent' },
+    { channel: 'email', alert_id: 1, status: 'failed' },
+    { channel: 'webhook', alert_id: 2, status: 'sent' }
+  ]);
 });
